@@ -23,6 +23,8 @@ The unshare() system call disassociates parts of the current process's execution
 Unlike clone(), which creates a new process, unshare() allows the calling process to detach itself from its current namespace (such as the mount namespace)  
 and move into a new, isolated one.
 
+<img width="1440" height="1200" alt="image" src="https://github.com/user-attachments/assets/7574defd-58a8-4aea-83fc-5ebe1a6f247c" />
+
 #### Setns
 
 The setns() system call associates the current process with an existing namespace.  
@@ -50,6 +52,8 @@ By doing so, the process effectively loses access to the host's filesystem, enha
 3. Call `pivot_root`: Set `/rootfs` as the new root and move the original root to a subdirectory within the new root (/rootfs/old_root).
 4. Unmount the old root: Use umount -l on the subdirectory containing the old root to completely remove the host's filesystem from the container's view.
 5. Change directory: Use chdir("/") to ensure the current working directory is updated to the new root.
+
+<img width="1440" height="800" alt="image" src="https://github.com/user-attachments/assets/8240d345-3b26-4266-8137-498e78293051" />
 
 ### 1. Filesystem Isolation
 
