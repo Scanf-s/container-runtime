@@ -198,7 +198,7 @@ pub struct RunArgs {
 **Files:**
 - Create: `src/container.rs`
 
-- [ ] **Step 4.1: Create `src/container.rs`**
+- [x] **Step 4.1: Create `src/container.rs`**
 
 Create `src/container.rs` with:
 
@@ -242,7 +242,7 @@ pub fn exec_cmd(cmd: &str, args: &[String]) -> Result<()> {
 **Files:**
 - Create: `src/runtime.rs`
 
-- [ ] **Step 5.1: Create `src/runtime.rs`**
+- [x] **Step 5.1: Create `src/runtime.rs`**
 
 Create `src/runtime.rs` with:
 
@@ -319,7 +319,7 @@ fn main() -> Result<ExitCode> {
 }
 ```
 
-- [ ] **Step 6.2: Build inside the dev container**
+- [x] **Step 6.2: Build inside the dev container**
 
 From inside the privileged dev container (bind-mount `$PWD:/workspace`), run:
 
@@ -329,7 +329,7 @@ cargo build
 
 Expected: `Finished \`dev\` profile [unoptimized + debuginfo] target(s)` with no errors.
 
-- [ ] **Step 6.3: Run the runtime against alpine**
+- [x] **Step 6.3: Run the runtime against alpine**
 
 Still inside the dev container:
 
@@ -345,7 +345,7 @@ Expected output (exact strings matter — they confirm isolation is in effect):
 
 If you instead see `NAME="Debian GNU/Linux"` or your dev container's `/workspace` directory, chroot did not take effect — revisit `isolate_fs_chroot`.
 
-- [ ] **Step 6.4: Commit (this is Commit 1.1 of the spec)**
+- [x] **Step 6.4: Commit (this is Commit 1.1 of the spec)**
 
 ```bash
 git add src/cli.rs src/container.rs src/runtime.rs src/main.rs
