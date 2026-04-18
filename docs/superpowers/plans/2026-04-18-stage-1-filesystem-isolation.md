@@ -112,7 +112,7 @@ git commit -m "chore: add privileged Docker dev env and alpine rootfs fetcher"
 **Files:**
 - Modify: `Cargo.toml`
 
-- [ ] **Step 2.1: Replace `Cargo.toml` contents**
+- [x] **Step 2.1: Replace `Cargo.toml` contents**
 
 Open `Cargo.toml` and replace its entire contents with:
 
@@ -128,7 +128,7 @@ clap = { version = "4", features = ["derive"] }
 nix = { version = "0.29", features = ["fs", "mount", "process", "sched", "user"] }
 ```
 
-- [ ] **Step 2.2: Verify the dependencies resolve**
+- [x] **Step 2.2: Verify the dependencies resolve**
 
 From inside the dev container (see Task 1, Step 1.4 for how to start it):
 
@@ -140,7 +140,7 @@ Expected: compilation fails with errors about the old `src/main.rs` referencing 
 
 If you see an error like `no matching package found for sysinfo` from Cargo.lock, run `rm Cargo.lock && cargo check` to regenerate it.
 
-- [ ] **Step 2.3: Commit**
+- [x] **Step 2.3: Commit**
 
 ```bash
 git add Cargo.toml Cargo.lock
