@@ -37,7 +37,7 @@ Each module has one responsibility. `container.rs` is the file that grows across
 - Create: `scripts/fetch-rootfs.sh`
 - Create: `.gitignore`
 
-- [ ] **Step 1.1: Create `.gitignore`**
+- [x] **Step 1.1: Create `.gitignore`**
 
 Create `.gitignore` with:
 
@@ -46,7 +46,7 @@ Create `.gitignore` with:
 /rootfs
 ```
 
-- [ ] **Step 1.2: Create `Dockerfile.dev`**
+- [x] **Step 1.2: Create `Dockerfile.dev`**
 
 Create `Dockerfile.dev` with:
 
@@ -58,7 +58,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 ```
 
-- [ ] **Step 1.3: Create `scripts/fetch-rootfs.sh`**
+- [x] **Step 1.3: Create `scripts/fetch-rootfs.sh`**
 
 Create `scripts/fetch-rootfs.sh` with:
 
@@ -87,7 +87,7 @@ Then make it executable:
 chmod +x scripts/fetch-rootfs.sh
 ```
 
-- [ ] **Step 1.4: Build the dev image and fetch the rootfs**
+- [x] **Step 1.4: Build the dev image and fetch the rootfs**
 
 On the macOS host, run:
 
@@ -98,7 +98,7 @@ docker run --rm -it --privileged -v "$PWD:/workspace" crt-dev bash -c './scripts
 
 Expected: `bin dev etc home lib media mnt opt proc root run sbin srv sys tmp usr var` printed, confirming the rootfs is in place.
 
-- [ ] **Step 1.5: Commit**
+- [x] **Step 1.5: Commit**
 
 ```bash
 git add .gitignore Dockerfile.dev scripts/fetch-rootfs.sh
