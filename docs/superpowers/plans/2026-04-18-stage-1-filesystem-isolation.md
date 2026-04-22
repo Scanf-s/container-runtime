@@ -364,7 +364,7 @@ commit). See docs/superpowers/specs/2026-04-18-stage-1-*.md."
 **Files:**
 - Create: `tests/chroot_escape.rs`
 
-- [ ] **Step 7.1: Write the failing (well, passing-via-escape) integration test**
+- [x] **Step 7.1: Write the failing (well, passing-via-escape) integration test**
 
 Create `tests/chroot_escape.rs` with:
 
@@ -445,7 +445,7 @@ fn chroot_can_be_escaped_via_retained_fd() {
 }
 ```
 
-- [ ] **Step 7.2: Run the test and confirm the escape succeeds**
+- [x] **Step 7.2: Run the test and confirm the escape succeeds**
 
 From inside the dev container:
 
@@ -457,7 +457,7 @@ Expected: `test chroot_can_be_escaped_via_retained_fd ... ok` — the test *pass
 
 If the test fails, read the failure message carefully. A common cause is the dev container not being `--privileged` (so `chroot` itself fails with `EPERM`).
 
-- [ ] **Step 7.3: Commit (this is Commit 1.2 of the spec)**
+- [x] **Step 7.3: Commit (this is Commit 1.2 of the spec)**
 
 ```bash
 git add tests/chroot_escape.rs

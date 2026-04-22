@@ -7,34 +7,36 @@ use crate::cli::RunArgs;
 use crate::container;
 
 pub fn run(args: RunArgs) -> Result<ExitCode> {
-    // Check whether rootfs exists or not.
+    // Make sure the rootfs exists before we fork.
     if !args.rootfs.is_dir() {
-        // We can exit this program with error message below using bail! macro
+        // Exit early with a clear error message via the bail! macro.
         bail!("rootfs {:?} does not exist or is not a directory", args.rootfs);
     }
 
-    // When we call fork system call, we need to ensure that fork cannot guarantee the safety using unsafe keyword
+    // fork() is marked unsafe in `nix` because it cannot guarantee memory
+    // safety across the parent/child split — we acknowledge that here.
     match unsafe { fork() }.context("fork failed")? {
-        // If parent process
+        // Parent process
         ForkResult::Parent { child } => {
-            // Check child process's status
+            // Wait for the child to finish and inspect its status.
             let status = waitpid(child, None).context("waitpid failed")?;
             match status {
 
-                // If child exited (successfully exited)
+                // Child exited normally — forward its exit code.
                 WaitStatus::Exited(_, code) => Ok(ExitCode::from(code as u8)),
 
-                // If child signaled (ctrl+c, kill) -> Return with 128 + signal number (Linux convention)
+                // Child was killed by a signal (ctrl+c, kill, ...) —
+                // return 128 + signal number (Linux convention).
                 WaitStatus::Signaled(_, sig, _) => Ok(ExitCode::from(128u8 + sig as u8)),
                 other => bail!("unexpected wait status: {:?}", other),
             }
         }
 
-        // If child process (Container environment)
+        // Child process (the container environment)
         ForkResult::Child => {
 
-            // Run child (container) process
-            // If child process returns an error, it should not propagate its error message to parent process
+            // Run the child. If it fails, exit immediately with code 127
+            // instead of returning into parent-side logic.
             if let Err(e) = child_main(args) {
                 eprintln!("container-runtime: child failed: {e:#}");
                 std::process::exit(127);
@@ -45,10 +47,10 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
 }
 
 fn child_main(args: RunArgs) -> Result<()> {
-    // isolate container's filesystem from host's filesystem using chroot
+    // Isolate the container's filesystem from the host using chroot.
     container::isolate_fs_chroot(&args.rootfs)?;
 
-    // Run command in isolated memory environment using execvp system call
+    // Replace the current process image with the target command via execvp.
     container::exec_cmd(&args.cmd, &args.args)?;
 
     unreachable!();

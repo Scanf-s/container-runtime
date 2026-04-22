@@ -1,22 +1,22 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-/// Entire parsed command struct
+/// Top-level parsed CLI command.
 #[derive(Parser, Debug)]
 #[command(name = "container-runtime", version, about = "A toy container runtime for learning")]
 pub struct Cli {
 
-    /// Subcommand (run, ...)
+    /// The subcommand to dispatch (run, ...).
     #[command(subcommand)]
     pub command: Command,
 
 }
 
-/// Subcommand struct
+/// Available subcommands.
 #[derive(Subcommand, Debug)]
 pub enum Command {
 
-    /// Subcommands to run inside an isolated rootfs.
+    /// Run a command inside an isolated rootfs.
     Run(RunArgs),
 
 }
