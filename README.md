@@ -167,10 +167,15 @@ Modern container systems don't rely on `chroot` for filesystem isolation, becaus
 Let's walk through the classic `chroot` + `chdir` jailbreak scenario.
 
 **1. Inside the current chroot, create a new directory to chroot into again (e.g. `./escape`).**  
+
 **2. Call `chroot("./escape")`.**  
+
 **3. The process's apparent root is now `/rootfs/escape`, but its CWD is still `/rootfs` — which sits *outside* the new root.**  
+
 **4. Repeatedly call `chdir("..")`.**  
-**5. Because the CWD is already outside the new root, the kernel does not clamp `..` at the root boundary, so we keep climbing until we reach the host's real root directory.**  
+
+**5. Because the CWD is already outside the new root, the kernel does not clamp `..` at the root boundary, so we keep climbing until we reach the host's real root directory.**
+
 **6. Jailbreak success**  
 
 #### pivot_root filesystem isolation
