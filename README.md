@@ -166,6 +166,8 @@ Modern container systems don't rely on `chroot` for filesystem isolation, becaus
 
 Let's walk through the classic `chroot` + `chdir` jailbreak scenario.
 
+<img width="661" height="433" alt="Screenshot 2026-04-24 at 7 51 29 PM" src="https://github.com/user-attachments/assets/2364e00e-26d7-4d6e-8841-cc204f19def6" />
+
 1. Inside the current chroot, create a new directory to chroot into again (e.g. `./escape`).  
 
 2. Call `chroot("./escape")`.  
@@ -185,6 +187,8 @@ Because of the security problem above, modern container runtimes use the `pivot_
 Unlike `chroot`, which only moves the starting point of absolute path resolution, `pivot_root` swaps the kernel's idea of the root mount itself, and when combined with a new mount namespace, makes mounts inside the container invisible to the host (and vice versa). The old root is not simply discarded. It is *relocated* into a subdirectory, which we then unmount to cut the last connection to the host filesystem.
 
 The full sequence is:
+
+<img width="481" height="645" alt="Screenshot 2026-04-24 at 7 57 37 PM" src="https://github.com/user-attachments/assets/d1e95aea-1f89-4a34-a9b9-bc9bcb708e85" />
 
 1. `unshare(CLONE_NEWNS)`: create a new mount namespace.
 2. `mount("/", MS_PRIVATE | MS_REC)`: stop mount events from propagating.
