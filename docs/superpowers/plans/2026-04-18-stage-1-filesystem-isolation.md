@@ -298,7 +298,7 @@ fn child_main(args: RunArgs) -> Result<()> {
 **Files:**
 - Replace: `src/main.rs`
 
-- [ ] **Step 6.1: Replace `src/main.rs`**
+- [x] **Step 6.1: Replace `src/main.rs`**
 
 Replace the entire contents of `src/main.rs` with:
 
@@ -477,7 +477,7 @@ mount namespaces + pivot_root, which Commit 1.3 implements."
 - Modify: `src/container.rs`
 - Modify: `src/runtime.rs`
 
-- [ ] **Step 8.1: Add `isolate_fs_pivot` to `src/container.rs`**
+- [x] **Step 8.1: Add `isolate_fs_pivot` to `src/container.rs`**
 
 Append the following to `src/container.rs` (keep `isolate_fs_chroot` and `exec_cmd` for reference and for the Stage 2 tests later — if you want it deleted now, see Step 8.5):
 
@@ -547,7 +547,7 @@ pub fn isolate_fs_pivot(rootfs: &Path) -> Result<()> {
 }
 ```
 
-- [ ] **Step 8.2: Switch `runtime::child_main` to call `isolate_fs_pivot`**
+- [x] **Step 8.2: Switch `runtime::child_main` to call `isolate_fs_pivot`**
 
 In `src/runtime.rs`, replace the body of `child_main` so it calls the new function:
 
@@ -561,7 +561,7 @@ fn child_main(args: RunArgs) -> Result<()> {
 
 Leave `isolate_fs_chroot` in `container.rs` — it's dead code now but is educational in the diff history and will be deleted (or repurposed) in a later stage. If you prefer a clean tree now, see Step 8.5.
 
-- [ ] **Step 8.3: Build and run**
+- [x] **Step 8.3: Build and run**
 
 From inside the privileged dev container:
 
@@ -572,7 +572,7 @@ cargo run -- run ./rootfs /bin/sh
 
 Expected: an interactive Alpine shell prompt (`/ #`). If you get `unshare: Operation not permitted`, the dev container is not `--privileged` — fix that before continuing.
 
-- [ ] **Step 8.4: Verify mount isolation manually**
+- [x] **Step 8.4: Verify mount isolation manually**
 
 Inside the shell spawned by the runtime:
 
@@ -596,11 +596,11 @@ mount | grep tmpfs
 
 Exit the inner shell (`exit`), and confirm the runtime process exits cleanly.
 
-- [ ] **Step 8.5 (optional cleanup): Remove dead `isolate_fs_chroot`**
+- [x] **Step 8.5 (optional cleanup): Remove dead `isolate_fs_chroot`**
 
 If you want a clean tree — delete `isolate_fs_chroot` from `src/container.rs`. Git history preserves the Commit 1.1 version. Skip this step if you want the function to stay for reference.
 
-- [ ] **Step 8.6: Re-run the chroot_escape test unchanged**
+- [x] **Step 8.6: Re-run the chroot_escape test unchanged**
 
 ```bash
 cargo test --test chroot_escape -- --ignored
@@ -610,7 +610,7 @@ Expected: the test still *passes* — it is a standalone demonstration of the `c
 
 Leaving the test in place is deliberate: it is documentation-as-code for *why* the pivot_root work was necessary.
 
-- [ ] **Step 8.7: Commit (this is Commit 1.3 of the spec)**
+- [x] **Step 8.7: Commit (this is Commit 1.3 of the spec)**
 
 ```bash
 git add src/container.rs src/runtime.rs
@@ -629,7 +629,7 @@ gap demonstrated by the chroot_escape test."
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 9.1: Smoke-test the end-state**
+- [x] **Step 9.1: Smoke-test the end-state**
 
 Inside the privileged dev container:
 
@@ -639,7 +639,7 @@ cargo run -- run ./rootfs /bin/sh -c 'echo inside; ls /; mount | wc -l'
 
 Expected: prints `inside`, then alpine's top-level dirs, then a small number (typically 2) for the mount count — only the rootfs and `/proc`. Exits cleanly with status 0.
 
-- [ ] **Step 9.2: Update `README.md`**
+- [x] **Step 9.2: Update `README.md`**
 
 Open `README.md` and replace its contents with:
 
@@ -678,7 +678,7 @@ cargo test -- --ignored   # integration tests need privileges
 See [`docs/superpowers/specs/2026-04-18-container-runtime-roadmap.md`](docs/superpowers/specs/2026-04-18-container-runtime-roadmap.md).
 ```
 
-- [ ] **Step 9.3: Commit**
+- [x] **Step 9.3: Commit**
 
 ```bash
 git add README.md

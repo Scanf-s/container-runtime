@@ -180,5 +180,181 @@ Let's walk through the classic `chroot` + `chdir` jailbreak scenario.
 
 #### pivot_root filesystem isolation
 
-Because of above security problem, modern container runtime uses `pivot_root` system call to isolate filesystem more secure way.
+Because of the security problem above, modern container runtimes use the `pivot_root` system call to isolate the filesystem in a more secure way.
 
+Unlike `chroot`, which only moves the starting point of absolute path resolution, `pivot_root` swaps the kernel's idea of the root mount itself, and when combined with a new mount namespace, makes mounts inside the container invisible to the host (and vice versa). The old root is not simply discarded. It is *relocated* into a subdirectory, which we then unmount to cut the last connection to the host filesystem.
+
+The full sequence is:
+
+1. `unshare(CLONE_NEWNS)`: create a new mount namespace.
+2. `mount("/", MS_PRIVATE | MS_REC)`: stop mount events from propagating.
+3. Bind-mount the rootfs onto itself: satisfy `pivot_root`'s mount-point requirement.
+4. Create a stub directory (`rootfs/.old`) to receive the old root.
+5. `pivot_root(rootfs, rootfs/.old)`: swap the root mount.
+6. `chdir("/")`: reset the working directory into the new root.
+7. `umount2("/.old", MNT_DETACH)` + `remove_dir("/.old")`: detach and clean up.
+8. Mount a fresh `/proc` inside the container.
+
+Each step deserves a closer look.
+
+##### 1. Create a new mount namespace
+
+```rust
+unshare(CloneFlags::CLONE_NEWNS).context("unshare(CLONE_NEWNS)")?;
+```
+
+`unshare(CLONE_NEWNS)` detaches this process's mount namespace from the host's. After this call, mount/unmount operations performed by this process can be confined to a separate view of the mount table.
+
+Namespace separation alone is not sufficient, however. Linux's default mount propagation mode is `MS_SHARED`, which means mount events can still cross namespace boundaries. That is what the next step addresses.
+
+##### 2. Make "/" recursively private
+
+```rust
+mount::<str, _, str, str>(
+    None,
+    "/",
+    None,
+    MsFlags::MS_REC | MsFlags::MS_PRIVATE,
+    None,
+).context("mount / MS_REC|MS_PRIVATE")?;
+```
+
+This call does not create a new mount — it modifies the *propagation* property of the existing `/` mount, recursively applying `MS_PRIVATE` to every submount. Afterwards, any mount performed inside the container stays inside the container, and host-side mounts do not leak in.
+
+The `mount()` syscall is overloaded: when `source` and `fstype` are both `None`, it is interpreted as "modify an existing mount" instead of "attach a new filesystem". The flag bits decide the exact semantics.
+
+##### 3. Bind-mount the rootfs onto itself
+
+```rust
+mount::<_, _, str, str>(
+    Some(rootfs),
+    rootfs,
+    None,
+    MsFlags::MS_BIND | MsFlags::MS_REC,
+    None,
+).with_context(|| format!("bind mount {:?} onto itself", rootfs))?;
+```
+
+`pivot_root` has a strict requirement: the new root must be a *mount point* distinct from its parent mount. A plain directory like `./rootfs` sitting on top of an existing mount does not qualify. Bind-mounting it onto itself creates an independent mount-table entry for the same files, which satisfies `pivot_root`.
+
+`MS_REC` is added defensively — if there happen to be any submounts beneath the rootfs, we want them preserved in the new view.
+
+##### 4. Prepare a place for the old root
+
+```rust
+let old_root = rootfs.join(".old");
+fs::create_dir_all(&old_root)
+    .with_context(|| format!("create_dir_all {:?}", old_root))?;
+```
+
+`pivot_root(new_root, put_old)` does not throw away the old root — it *relocates* it into `put_old`. The kernel also requires `put_old` to be a subdirectory of `new_root`. We create `rootfs/.old` for that purpose.
+
+##### 5. Swap the root
+
+```rust
+pivot_root(rootfs, old_root.as_path())
+    .with_context(|| format!("pivot_root({:?}, {:?})", rootfs, old_root))?;
+```
+
+After this call:
+
+- `/` resolves to what was `./rootfs`.
+- The previous host root is now visible at `/.old`.
+
+The container can still reach the host filesystem via `/.old/...`, so isolation is not complete until we detach it in step 7.
+
+##### 6. Reset the working directory
+
+```rust
+chdir("/").context("chdir(\"/\") after pivot_root")?;
+```
+
+`pivot_root` changes the root mount but leaves the process's current working directory pointing at wherever it was before. After the pivot, that CWD now lives inside `/.old` (the relocated old root). If we skip this step, any relative path used by the child process would resolve back into the host filesystem — the same failure mode as the classic chroot escape.
+
+##### 7. Detach and remove the old root
+
+```rust
+umount2("/.old", MntFlags::MNT_DETACH).context("umount2(/.old)")?;
+fs::remove_dir("/.old").context("remove_dir(/.old)")?;
+```
+
+`MNT_DETACH` is a *lazy* unmount: it disconnects `/.old` from the mount tree immediately, but defers the actual teardown until every process that still has files open on it has closed them. A plain `umount` would likely fail with `EBUSY` because the runtime binary and its shared libraries were loaded from the host filesystem.
+
+After the unmount, `/.old` is an empty directory. We use `remove_dir` (not `remove_dir_all`) so that if something went wrong and the directory still contained host files, the call would fail safely instead of deleting them.
+
+##### 8. Mount a fresh procfs
+
+```rust
+fs::create_dir_all("/proc").context("create /proc")?;
+mount::<_, _, _, str>(
+    Some("proc"),
+    "/proc",
+    Some("proc"),
+    MsFlags::MS_NOSUID | MsFlags::MS_NODEV | MsFlags::MS_NOEXEC,
+    None,
+).context("mount /proc")?;
+```
+
+Detaching the old root in step 7 also severed the container's view of `/proc`. Without it, `ps`, `top`, reads under `/proc/self/*`, and many shell built-ins stop working.
+
+A few details are worth unpacking.
+
+**`/proc` is not a regular directory.** It is a *virtual filesystem* synthesised by the kernel. Files like `/proc/cpuinfo` or `/proc/self/status` do not exist on any disk; the procfs driver fabricates their contents on each read. That is why `fs::create_dir_all("/proc")` alone is not sufficient — it creates an empty mount point, but no driver is attached to it.
+
+**How does the kernel know to invoke procfs when something opens `/proc/...`?** The Linux VFS (Virtual Filesystem Switch) maintains a mount table that maps paths to filesystem drivers. When a process makes a path-based syscall, VFS walks the path and switches to the driver registered at whichever mount point it hits:
+
+```
+path prefix   →  driver
+─────────────────────────
+/             →  ext4
+/proc         →  procfs
+/sys          →  sysfs
+/tmp          →  tmpfs
+```
+
+`mount()` is the act of inserting a row into that table. From that moment on, any access under the mount point is transparently routed to the driver — no user-level code needs to be aware of the dispatch.
+
+**Why is `source` set to the literal string `"proc"`?** For an on-disk filesystem (`ext4`, `xfs`, ...), `source` points to a block device that the driver reads. For a virtual filesystem, there is no such device. The kernel does not use `source` at all. The string only shows up as a label in `mount` output and `/proc/self/mountinfo`. By convention, the source is set to the filesystem's type name (`proc`, `tmpfs`, `sysfs`), so `mount` output reads naturally as `proc on /proc type proc`. Tools that parse mount output rely on this convention.
+
+**`MS_NOSUID | MS_NODEV | MS_NOEXEC`** are standard container hardening flags: they disable set-uid/set-gid binaries, device nodes, and executable files under `/proc`. Nothing in a healthy procfs needs any of them, so denying them closes a small attack surface.
+
+**Result**
+
+After all eight steps, the container's mount table contains only what we intentionally placed there:
+
+```bash
+/ # mount
+/run/host_mark/Users on / type fakeowner (rw,nosuid,nodev,relatime,fakeowner)
+proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
+```
+
+Mounts created inside the container do not leak to the host, and each new container launch starts from a fresh mount namespace:
+
+```bash
+# Container A
+/ # mount -t tmpfs tmpfs /tmp
+/ # mount | grep tmpfs
+tmpfs on /tmp type tmpfs (rw,relatime)
+
+# Container B (fresh launch)
+/ # mount | grep tmpfs
+/ #
+```
+
+Compared with the chroot escape demonstrated earlier, the retained-fd trick no longer works.
+Because the detached old root is not reachable even via open file descriptors inherited from before the pivot.
+
+```bash
+cargo run -- run ./rootfs /bin/sh -c 'echo inside; ls /; mount | wc -l'
+```
+
+```text
+root@6b7298085cd6:/app# cargo run -- run ./rootfs /bin/sh -c 'echo inside; ls /; mount | wc -l'
+   Compiling container-runtime v0.1.0 (/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.67s
+     Running `target/debug/container-runtime run ./rootfs /bin/sh -c 'echo inside; ls /; mount | wc -l'`
+inside
+bin    dev    etc    home   lib    media  mnt    opt    proc   root   run    sbin   srv    sys    tmp    usr    var
+2 (only root and /proc are mounted in new child process)
+root@6b7298085cd6:/app# 
+```

@@ -1,0 +1,28 @@
+{
+  "name": "container-runtime-dev",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/app",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/app,type=bind,consistency=cached",
+  "runArgs": [
+    "--privileged",
+    "--cgroupns=host"
+  ],
+  "remoteUser": "root",
+  "postCreateCommand": "rustup component add rust-analyzer clippy rustfmt",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb"
+      ],
+      "settings": {
+        "rust-analyzer.cargo.target": "x86_64-unknown-linux-gnu",
+        "rust-analyzer.check.command": "clippy"
+      }
+    }
+  }
+}

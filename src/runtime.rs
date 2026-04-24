@@ -48,7 +48,10 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
 
 fn child_main(args: RunArgs) -> Result<()> {
     // Isolate the container's filesystem from the host using chroot.
-    container::isolate_fs_chroot(&args.rootfs)?;
+    // container::isolate_fs_chroot(&args.rootfs)?;
+
+    // Isolate the container's filesystem from the host using pivot_root.
+    container::isolate_fs_pivot(&args.rootfs)?;
 
     // Replace the current process image with the target command via execvp.
     container::exec_cmd(&args.cmd, &args.args)?;
