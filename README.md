@@ -358,3 +358,40 @@ bin    dev    etc    home   lib    media  mnt    opt    proc   root   run    sbi
 2 (only root and /proc are mounted in new child process)
 root@6b7298085cd6:/app# 
 ```
+
+**Existing problem**
+
+As we can see, we completed filesystem isolation but we didn't isolated the PID namespace.
+If we run the container runtime and run `ps` command inside of it, we still can see the host's process.
+```bash
+PID   USER     TIME  COMMAND
+    1 root      0:02 /bin/sh -c echo Container started trap "exit 0" 15  exec "$@" while sleep 1 & wait $!; do :; done -
+   28 root      0:00 /bin/sh -c echo "New container started. Keep-alive process started." ; export VSCODE_REMOTE_CONTAINERS_SESSION=b96b2018-3691-4519-ad46-fadb534b58c31777019931519 ; /bin/sh
+   34 root      0:00 /bin/sh
+   40 root      0:00 /bin/sh
+  214 root      0:00 /bin/sh
+  216 root      0:00 sh /root/.vscode-server/bin/560a9dba96f961efea7b1612916f89e5d5d4d679/bin/code-server --log debug --force-disable-user-env --server-data-dir /root/.vscode-server --use-host-proxy --telemetry-level all --accept-server-license-terms --host 127.0.0.1 --port 0 --connection-token-
+  230 root      0:23 /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/node /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/out/server-main.js --log debug --force-disable-user-env --server-data-dir /root/.vscode-server --use-host-proxy 
+  243 root      0:00 /root/.vscode-server/bin/560a9dba96f961efea7b1612916f89e5d5d4d679/node /tmp/vscode-remote-containers-server-0aa04ef3-e653-42bd-b918-3889fca26696.js
+  272 root      0:03 /root/.vscode-server/bin/560a9dba96f961efea7b1612916f89e5d5d4d679/node -e      const net = require('net');     const fs = require('fs');     process.stdin.pause();     const client = net.createConnection({ host: '127.0.0.1', port: 43011 }, () => {      console.error('Connect
+  294 root      0:14 /root/.vscode-server/bin/560a9dba96f961efea7b1612916f89e5d5d4d679/node -e      const net = require('net');     const fs = require('fs');     process.stdin.pause();     const client = net.createConnection({ host: '127.0.0.1', port: 43011 }, () => {      console.error('Connect
+  314 root      0:04 /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/node /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/out/bootstrap-fork --type=fileWatcher
+  326 root      2:31 /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/node --dns-result-order=ipv4first /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/out/bootstrap-fork --type=extensionHost --transformURIs --useHostProxy=true
+  383 root      0:05 /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/node /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/out/bootstrap-fork --type=ptyHost --logsPath /root/.vscode-server/data/logs/20260424T083904
+  414 root      0:01 /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/node /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/extensions/json-language-features/server/dist/node/jsonServerMain --node-ipc --clientProcessId=326
+  552 root      3:57 /root/.vscode-server/extensions/rust-lang.rust-analyzer-0.3.2870-linux-arm64/server/rust-analyzer
+  855 root      0:00 /usr/local/rustup/toolchains/1.95.0-aarch64-unknown-linux-gnu/libexec/rust-analyzer-proc-macro-srv
+ 3101 root      0:04 /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/node /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/extensions/markdown-language-features/dist/serverWorkerMain --node-ipc --clientProcessId=326
+58211 root      0:00 /bin/bash --init-file /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh
+59413 root      0:00 target/debug/container-runtime run ./rootfs /bin/sh
+59423 root      0:00 /bin/sh
+59432 root      0:00 /bin/sh -c "/vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/out/vs/base/node/cpuUsage.sh" 58211 59413 59423
+59433 root      0:00 {cpuUsage.sh} /bin/bash /vscode/vscode-server/bin/linux-arm64/560a9dba96f961efea7b1612916f89e5d5d4d679/out/vs/base/node/cpuUsage.sh 58211 59413 59423
+59438 root      0:00 sleep 1
+59439 root      0:00 sleep 1
+59440 root      0:00 ps
+```
+
+---
+
+### 2. Process Isolation
