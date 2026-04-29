@@ -1164,3 +1164,5 @@ If `rmdir` ever ran while the cgroup still contained processes, it would fail wi
 The fact that cleanup succeeds confirms two things
 - the workload really did run inside our cgroup (so all PIDs left when the container died).
 - the parent process (the only one whose `Drop` fires) is the only owner that performs the cleanup.
+
+### 4. New user namespace
