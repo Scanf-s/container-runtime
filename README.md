@@ -581,3 +581,62 @@ Compared with the previous section's `ps` dump, which leaked dozens of host proc
 The first shell is PID 1, and `/proc` reflects the new namespace's view.
 
 ### 3. Hardware resource limitation
+
+#### Cgroup 해야하는 이유
+
+#### /sys/fs/cgroup 가상 파일 시스템 탐색
+
+다음과 깉이 cgroup 내부에 존재하는 파일들을 확인할 수 있다.
+cgroup.procs
+cgroup.threads
+memory.stat
+cpu.stat
+docker
+kubepods
+```text
+root@6b7298085cd6:/sys/fs/cgroup# ls
+cgroup.controllers  cgroup.max.descendants  cgroup.procs  cgroup.subtree_control  cpu.pressure  cpu.stat.local         cpuset.cpus.isolated   docker       io.stat   memory.pressure  memory.stat             podruntime    restricted
+cgroup.max.depth    cgroup.pressure         cgroup.stat   cgroup.threads          cpu.stat      cpuset.cpus.effective  cpuset.mems.effective  io.pressure  kubepods  memory.reclaim   memory.zswap.writeback  procd-paused
+```
+
+docker cgroup을 한번 살펴보자
+```text
+root@6b7298085cd6:/sys/fs/cgroup# cd docker/
+root@6b7298085cd6:/sys/fs/cgroup/docker# cat cpu.max
+max 100000
+root@6b7298085cd6:/sys/fs/cgroup/docker# ls
+6b72980...  cgroup.pressure         cpu.stat                         cpuset.mems.effective                                             hugetlb.2MB.events         hugetlb.32MB.numa_stat     io.max               memory.oom.group     memory.zswap.current
+6f20202...  cgroup.procs            cpu.stat.local                   ddcca065....  hugetlb.2MB.events.local   hugetlb.32MB.rsvd.current  io.pressure          memory.peak          memory.zswap.max
+buildkit                                                          cgroup.stat             cpu.weight                       hugetlb.1GB.current                                               hugetlb.2MB.max            hugetlb.32MB.rsvd.max      io.stat              memory.pressure      memory.zswap.writeback
+buildx                                                            cgroup.subtree_control  cpu.weight.nice                  hugetlb.1GB.events                                                hugetlb.2MB.numa_stat      hugetlb.64KB.current       memory.current       memory.reclaim       pids.current
+cgroup.controllers                                                cgroup.threads          cpuset.cpus                      hugetlb.1GB.events.local                                          hugetlb.2MB.rsvd.current   hugetlb.64KB.events        memory.events        memory.stat          pids.events
+cgroup.events                                                     cgroup.type             cpuset.cpus.effective            hugetlb.1GB.max                                                   hugetlb.2MB.rsvd.max       hugetlb.64KB.events.local  memory.events.local  memory.swap.current  pids.events.local
+cgroup.freeze                                                     cpu.idle                cpuset.cpus.exclusive            hugetlb.1GB.numa_stat                                             hugetlb.32MB.current       hugetlb.64KB.max           memory.high          memory.swap.events   pids.max
+cgroup.kill                                                       cpu.max                 cpuset.cpus.exclusive.effective  hugetlb.1GB.rsvd.current                                          hugetlb.32MB.events        hugetlb.64KB.numa_stat     memory.low           memory.swap.high     pids.peak
+cgroup.max.depth                                                  cpu.max.burst           cpuset.cpus.partition            hugetlb.1GB.rsvd.max                                              hugetlb.32MB.events.local  hugetlb.64KB.rsvd.current  memory.max           memory.swap.max      rdma.current
+cgroup.max.descendants                                            cpu.pressure            cpuset.mems                      hugetlb.2MB.current                                               hugetlb.32MB.max           hugetlb.64KB.rsvd.max      memory.min           memory.swap.peak     rdma.max
+```
+docker도 마찬가지로 cgroup을 사용하여 docker 프로세스 자체의 리소스 관리와 docker process에서 생성되는 새로운 컨테이너에 대한 리소스 제한도 수행하고 있음을 알수있다,
+실제로 더 자세히 살펴보면 (6b729...) 컨테이너는 현재 container_runtime의 개발 환경
+
+```bash
+root@6b7298085cd6:/sys/fs/cgroup/docker# cd 6b7298.../
+root@6b7298085cd6:/sys/fs/cgroup/docker/6b7298...# ls
+cgroup.controllers      cgroup.procs            cpu.max.burst    cpuset.cpus.effective            hugetlb.1GB.events        hugetlb.2MB.events        hugetlb.32MB.events        hugetlb.64KB.events        io.pressure          memory.max        memory.swap.current   memory.zswap.writeback  rdma.max
+cgroup.events           cgroup.stat             cpu.pressure     cpuset.cpus.exclusive            hugetlb.1GB.events.local  hugetlb.2MB.events.local  hugetlb.32MB.events.local  hugetlb.64KB.events.local  io.stat              memory.min        memory.swap.events    pids.current
+cgroup.freeze           cgroup.subtree_control  cpu.stat         cpuset.cpus.exclusive.effective  hugetlb.1GB.max           hugetlb.2MB.max           hugetlb.32MB.max           hugetlb.64KB.max           memory.current       memory.oom.group  memory.swap.high      pids.events
+cgroup.kill             cgroup.threads          cpu.stat.local   cpuset.cpus.partition            hugetlb.1GB.numa_stat     hugetlb.2MB.numa_stat     hugetlb.32MB.numa_stat     hugetlb.64KB.numa_stat     memory.events        memory.peak       memory.swap.max       pids.events.local
+cgroup.max.depth        cgroup.type             cpu.weight       cpuset.mems                      hugetlb.1GB.rsvd.current  hugetlb.2MB.rsvd.current  hugetlb.32MB.rsvd.current  hugetlb.64KB.rsvd.current  memory.events.local  memory.pressure   memory.swap.peak      pids.max
+cgroup.max.descendants  cpu.idle                cpu.weight.nice  cpuset.mems.effective            hugetlb.1GB.rsvd.max      hugetlb.2MB.rsvd.max      hugetlb.32MB.rsvd.max      hugetlb.64KB.rsvd.max      memory.high          memory.reclaim    memory.zswap.current  pids.peak
+cgroup.pressure         cpu.max                 cpuset.cpus      hugetlb.1GB.current              hugetlb.2MB.current       hugetlb.32MB.current      hugetlb.64KB.current       io.max                     memory.low           memory.stat       memory.zswap.max      rdma.current
+root@6b7298085cd6:/sys/fs/cgroup/docker/6b7298...# cat memory.max
+max
+root@6b7298085cd6:/sys/fs/cgroup/docker/6b7298...# cat memory.current
+1626386432
+root@6b7298085cd6:/sys/fs/cgroup/docker/6b7298...# cat cpu.max       
+max 100000
+root@6b7298085cd6:/sys/fs/cgroup/docker/6b7298...# cat cpu.idle
+0
+root@6b7298085cd6:/sys/fs/cgroup/docker/6b7298...# 
+```
+위와 같이 현재 사용중인 컨테이너에 대해서도 리소스가 제한된 상태를 알수있다

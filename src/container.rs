@@ -3,21 +3,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use nix::mount::{MntFlags, MsFlags, mount, umount2};
 use std::ffi::CString;
-use nix::unistd::{chdir, chroot, execvp, pivot_root};
+use nix::unistd::{chdir, execvp, pivot_root};
 use nix::sched::{unshare, CloneFlags};
-
-/// Restrict the process's view of the filesystem to `rootfs` using the `chroot` system call.
-/// Kept for reference; superseded by `isolate_fs_pivot`. See README for the escape demo.
-#[allow(dead_code)]
-pub fn isolate_fs_chroot(rootfs: &Path) -> Result<()> {
-    // Change the current process's root directory.
-    chroot(rootfs).with_context(|| format!("chroot {:?}", rootfs))?;
-
-    // Reset the working directory so it matches the new root.
-    chdir("/").context("chdir(\"/\") after chroot")?;
-
-    Ok(())
-}
 
 /// Full filesystem isolation: new mount namespace, pivot_root into `rootfs`,
 /// detach the old root, and mount a fresh `/proc`.

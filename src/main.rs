@@ -5,6 +5,7 @@ use std::process::ExitCode;
 mod cli;
 mod container;
 mod runtime;
+mod cgroup;
 
 fn main() -> Result<ExitCode> {
     // Parse the CLI arguments.
