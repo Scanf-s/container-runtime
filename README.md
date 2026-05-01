@@ -1166,3 +1166,42 @@ The fact that cleanup succeeds confirms two things
 - the parent process (the only one whose `Drop` fires) is the only owner that performs the cleanup.
 
 ### 4. New user namespace
+
+Until now, we isolate the filesystem, pid and resources from the host process.
+But the container runtime still has an important security problem.
+
+If we run `whoami` inside the container:
+
+```bash
+cargo run -- run ./rootfs /bin/sh
+whoami
+```
+
+we see
+
+```bash
+/ # whoami
+root
+```
+
+This means the process is running as UID 0 inside the container.
+In our current runtime, because we have not created a user namespace, this container root is also root from the host kernel's point of view.
+If the container process somehow escapes the container environment, it may have real host-root privileges.
+
+Let's think about the `Dockerfile`.
+When we write down the Dockerfile, we can specify a default user with `USER` instruction.
+If no USER provided, Docker runs the container as root by default.
+
+But there is a difference. Docker uses user namespace isolation to resolve the host-root privilege acquiring problem.
+User namespace isolation lets the process appear as root inside the container environment while mapping UID to an unprivileged UID on the host environment.
+
+For example,
+- Inside container: `UID` 0, username root.
+- But in host environment: `UID` 12345, not privileged root account.
+
+So `whoami` may still print `root` inside the container but that root account is no longer host root.
+
+> To isolate container root from host root, we need a new user namespace.
+> A user namepsace isolates both user and group IDs.
+> We can configure UID mappings with `uid_map` and GID mappings with `gid_map`.
+> So UID/GID 0 inside the container can correspond to an unprivileged UID/GUID on the host environment.

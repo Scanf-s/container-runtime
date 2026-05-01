@@ -7,6 +7,8 @@ mod container;
 mod runtime;
 mod cgroup;
 
+
+#[cfg(target_os = "linux")]
 fn main() -> Result<ExitCode> {
     // Parse the CLI arguments.
     let cli = cli::Cli::parse();
