@@ -38,6 +38,14 @@ pub struct RunArgs {
     #[arg(long, default_value_t = 1024)]
     pub pids: u64,
 
+    /// Host UID to map with container's root user
+    #[arg(long, default_value_t = 0)] 
+    pub uid: u32,
+
+    /// Host GID to map with container's root user
+    #[arg(long, default_value_t = 0)]
+    pub gid: u32,
+
     /// Command to execute inside the container.
     pub cmd: String,
 

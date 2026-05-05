@@ -2,16 +2,23 @@ use std::os::fd::AsRawFd;
 use anyhow::{bail, Context, Result};
 use nix::sched::{unshare, CloneFlags};
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{fork, ForkResult, pipe, write, read};
+use nix::unistd::{ForkResult, Gid, Uid, fork, pipe, read, write, setgid, setuid};
 use std::process::ExitCode;
 use nix::sys::signal::{kill, Signal};
 use crate::cgroup::Cgroup;
 use crate::cli::RunArgs;
 use crate::container;
+use crate::mapping::Mapping;
 
 const CPU_PERIOD_US: u64 = 100_000; // 100ms (cgroup default)
 
 pub fn run(args: RunArgs) -> Result<ExitCode> {
+
+    // PIPELINES
+    let (c_read_fd, c_write_fd) = pipe()?;
+    let (u_read_fd, u_write_fd) = pipe()?;
+    let (m_read_fd, m_write_fd) = pipe()?;
+
     // VALIDATE INPUT ARGUMENTS
     // Make sure the rootfs exists before we fork.
     if !args.rootfs.is_dir() {
@@ -29,7 +36,6 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
     // SETUP AVAILABLE RESOURCES
     // Create a new cgroup to restrict the child's resource usage.
     let new_cgroup: Cgroup = Cgroup::new()?;
-    let (read_fd, write_fd) = pipe()?;
     let cpu_quota_us = (args.cpus * CPU_PERIOD_US as f64) as u64;
     new_cgroup.set_cpu_max(cpu_quota_us, CPU_PERIOD_US)?;
     new_cgroup.set_memory_max(args.mem)?;
@@ -41,19 +47,50 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
     match unsafe { fork() }.context("fork failed")? {
         // Parent process
         ForkResult::Parent { child } => {
+            drop(c_read_fd);
+            drop(u_write_fd);
+            drop(m_read_fd);
+
             // Block the child until cgroup registration is complete, so the
             // grandchild (the actual workload) is born inside the cgroup.
             // pipe() is a FIFO buffer maintained by the kernel; it returns two
-            // file descriptors: read_fd (for the reader) and write_fd (for the writer).
-            drop(read_fd); // parent never reads from the pipe
+            // file descriptors: c_read_fd (for the reader) and c_write_fd (for the writer).
             if let Err(e) = new_cgroup.add_pid(child) {
                 // if failed to create new group, kill child process before return an error
                 let _ = kill(child, Signal::SIGKILL);
                 let _ = waitpid(child, None);
                 return Err(e).context("add_pid failed; child killed");
             }
-            write(&write_fd, &[1u8])?; // signal the child that it can proceed
-            drop(write_fd);
+            // signal the child that it can proceed
+            if let Err(e) = write(&c_write_fd, &[1u8]) {
+                let _ = kill(child, Signal::SIGKILL);
+                let _ = waitpid(child, None);
+                return Err(e).context("failed to write in cgroup pipe buffer; child killed");
+            }
+            drop(c_write_fd);
+
+            // Wait until the child has created a new user namespace.
+            let mut buf = [0u8; 1];
+            if let Err(e) = read(u_read_fd.as_raw_fd(), &mut buf) {
+                let _ = kill(child, Signal::SIGKILL);
+                let _ = waitpid(child, None);
+                return Err(e).context("child closed pipe before creating new user namespace; child killed");
+            }
+            drop(u_read_fd);
+
+            // Map container root to the requested host UID/GID.
+            let new_mapping: Mapping = Mapping::new(
+                child,
+                Uid::from_raw(args.uid),
+                Gid::from_raw(args.gid),
+            );
+            if let Err(e) = new_mapping.map() {
+                let _ = kill(child, Signal::SIGKILL);
+                let _ = waitpid(child, None);
+                return Err(e).context("user namespace mapping failed; child killed");
+            }
+            write(&m_write_fd, &[1u8])?; // signal the child that it can proceed
+            drop(m_write_fd);
 
             // Wait for the child to finish and inspect its status.
             let status = waitpid(child, None).context("waitpid failed")?;
@@ -71,10 +108,44 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
 
         // Child setup process
         ForkResult::Child => {
-            drop(write_fd); // child never writes to the pipe
+            drop(c_write_fd);
+            drop(u_read_fd);
+            drop(m_write_fd);
+            
+            // wait until parent finished to create new cgroup
             let mut buf = [0u8; 1];
-            read(read_fd.as_raw_fd(), &mut buf)?; // wait for the parent's signal
-            drop(read_fd);
+            let check_cgroup = read(c_read_fd.as_raw_fd(), &mut buf);
+            if check_cgroup != Ok(1) {
+                eprintln!("parent closed cgroup step pipe before completing it");
+                std::process::exit(127);
+            }
+            drop(c_read_fd);
+
+            // flush buf to reuse in mapping step
+            buf = [0u8; 1];
+
+            // Create a new user namespace
+            // setup_child is in new user namespace
+            if let Err(e) = unshare(CloneFlags::CLONE_NEWUSER).context("unshare(CLONE_NEWUSER)") {
+                eprintln!("failed to execute unshare(CLONE_NEWUSER): {e:#}");
+                std::process::exit(127);
+            }
+            // signal to notify to the parent about finishing unshare(CLONE_NEWUSER)
+            if let Err(e) = write(&u_write_fd, &[1u8]) {
+                eprintln!("failed to write buffer in u_write_fd: {e:#}");
+                std::process::exit(127);
+            }
+            drop(u_write_fd);
+            
+            // Wait until mapping step completed from the parent process
+            let check_mapping = read(m_read_fd.as_raw_fd(), &mut buf);
+            if check_mapping != Ok(1) {
+                eprintln!("parent closed mapping pipe before completing uid/gid mapping");
+                std::process::exit(127);
+            }
+            drop(m_read_fd);
+
+            // Run setup_child
             if let Err(e) = setup_child(args) {
                 eprintln!("container-runtime: setup_child failed: {e:#}");
                 std::process::exit(127);
@@ -87,6 +158,7 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
 fn setup_child(args: RunArgs) -> Result<()> {
 
     // Create a new PID namespace for process isolation.
+    // After calling unshare(CLONE_NEWPID), new child will be created with new PID namespace.
     unshare(CloneFlags::CLONE_NEWPID).context("unshare(CLONE_NEWPID)")?;
 
     // Fork the actual container process (PID 1 inside the new namespace).
@@ -118,8 +190,13 @@ fn setup_child(args: RunArgs) -> Result<()> {
 }
 
 fn child_main(args: RunArgs) -> Result<()> {
+
     // Isolate the container's filesystem from the host using pivot_root.
     container::isolate_fs_pivot(&args.rootfs)?;
+
+    // set uid and gid
+    setgid(Gid::from_raw(0))?;
+    setuid(Uid::from_raw(0))?;
 
     // Replace the current process image with the target command via execvp.
     container::exec_cmd(&args.cmd, &args.args)?;

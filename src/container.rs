@@ -33,6 +33,18 @@ pub fn isolate_fs_pivot(rootfs: &Path) -> Result<()> {
     )
     .with_context(|| format!("bind mount {:?} onto itself", rootfs))?;
 
+    // Mount a fresh procfs.
+    let proc_path = rootfs.join("proc");
+    fs::create_dir_all(&proc_path).with_context(|| format!("create {}", proc_path.display()))?;
+    mount::<_, _, _, str>(
+        Some("proc"),
+        proc_path.as_path(),
+        Some("proc"),
+        MsFlags::MS_NOSUID | MsFlags::MS_NODEV | MsFlags::MS_NOEXEC,
+        None,
+    )
+    .with_context(|| format!("mount proc on {:?}", proc_path))?;
+
     // Directory inside the new root to receive the old root.
     let old_root = rootfs.join(".old");
     fs::create_dir_all(&old_root)
@@ -50,23 +62,13 @@ pub fn isolate_fs_pivot(rootfs: &Path) -> Result<()> {
     umount2("/.old", MntFlags::MNT_DETACH).context("umount2(/.old)")?;
     fs::remove_dir("/.old").context("remove_dir(/.old)")?;
 
-    // Mount a fresh procfs (detaching the old root removed the host /proc).
-    fs::create_dir_all("/proc").context("create /proc")?;
-    mount::<_, _, _, str>(
-        Some("proc"),
-        "/proc",
-        Some("proc"),
-        MsFlags::MS_NOSUID | MsFlags::MS_NODEV | MsFlags::MS_NOEXEC,
-        None,
-    )
-    .context("mount /proc")?;
-
     Ok(())
 }
 
 /// Replace the current process with `cmd` + `args` via `execvp`.
 /// Returns only on failure.
 pub fn exec_cmd(cmd: &str, args: &[String]) -> Result<()> {
+
     // Convert the command name into a nul-safe CString.
     let c_cmd = CString::new(cmd).context("cmd contains a nul byte")?;
 

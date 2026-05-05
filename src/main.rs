@@ -6,6 +6,7 @@ mod cli;
 mod container;
 mod runtime;
 mod cgroup;
+mod mapping;
 
 
 #[cfg(target_os = "linux")]

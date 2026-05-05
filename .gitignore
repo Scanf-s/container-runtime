@@ -1,3 +1,4 @@
 /target
 .idea/
 /rootfs
+.DS_Store
