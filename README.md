@@ -38,4 +38,4 @@ mount   # isolated rootfs and procfs
 
 ## Concept
 
-See the detailed document in DOCS.md (DOCS.md).
+See the detailed document in [DOCS.md](./DOCS.md).
