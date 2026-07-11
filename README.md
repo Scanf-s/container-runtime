@@ -25,6 +25,7 @@ make rootfs
 ### 3. Run Container Runtime
 
 ```bash
+make dev-shell
 cargo run -- run ./rootfs --cpus 1.0 --mem 536870912 --pids 1024 --uid 1000 --gid 1000 /bin/sh
 ```
 

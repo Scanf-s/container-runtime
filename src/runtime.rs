@@ -157,9 +157,9 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
 
 fn setup_child(args: RunArgs) -> Result<()> {
 
-    // Create a new PID namespace for process isolation.
-    // After calling unshare(CLONE_NEWPID), new child will be created with new PID namespace.
-    unshare(CloneFlags::CLONE_NEWPID).context("unshare(CLONE_NEWPID)")?;
+    // Create a new PID namespace and new Network device namespace.
+    // After calling unshare(CLONE_NEWPID | CLONE_NEWNET), new child will be created with new PID and network namespace.
+    unshare(CloneFlags::CLONE_NEWPID | CloneFlags::CLONE_NEWNET).context("unshare(CLONE_NEWPID | CLONE_NEWNET)")?;
 
     // Fork the actual container process (PID 1 inside the new namespace).
     match unsafe { fork() }.context("fork (setup) failed")? {
