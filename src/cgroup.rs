@@ -1,14 +1,13 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
+use rand::random;
 use std::fs;
 use std::path::{Path, PathBuf};
-use rand::random;
 
 pub struct Cgroup {
     path: PathBuf,
 }
 
 impl Cgroup {
-
     // Create a new cgroup for the container.
     pub fn new() -> Result<Self> {
         // controllers = resources
@@ -40,12 +39,12 @@ impl Cgroup {
 
         // Enable any missing controllers on the parent cgroup.
         if !missing_controllers.is_empty() {
-            let payload = missing_controllers.iter()
+            let payload = missing_controllers
+                .iter()
                 .map(|c| format!("+{}", c))
                 .collect::<Vec<_>>()
                 .join(" ");
-            fs::write(subtree_path, payload)
-                .context("failed to enable controllers")?;
+            fs::write(subtree_path, payload).context("failed to enable controllers")?;
         }
 
         // Create a new cgroup subdirectory for this container.
@@ -59,11 +58,15 @@ impl Cgroup {
         let delegated: Vec<&str> = delegated.split_whitespace().collect();
         for c in &required_controllers {
             if !delegated.contains(c) {
-                bail!("controller {c} not delegated to new cgroup (check parent's cgroup.subtree_control)");
+                bail!(
+                    "controller {c} not delegated to new cgroup (check parent's cgroup.subtree_control)"
+                );
             }
         }
 
-        Ok(Cgroup { path: new_container_cgroup })
+        Ok(Cgroup {
+            path: new_container_cgroup,
+        })
     }
 
     pub fn add_pid(&self, pid: nix::unistd::Pid) -> Result<()> {
@@ -77,7 +80,8 @@ impl Cgroup {
     }
 
     pub fn set_cpu_max(&self, quota_us: u64, period_us: u64) -> Result<()> {
-        fs::write(self.path.join("cpu.max"), format!("{quota_us} {period_us}")).context("write cpu.max")?;
+        fs::write(self.path.join("cpu.max"), format!("{quota_us} {period_us}"))
+            .context("write cpu.max")?;
         Ok(())
     }
 

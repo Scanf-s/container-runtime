@@ -3,22 +3,22 @@ use std::path::PathBuf;
 
 /// Top-level parsed CLI command.
 #[derive(Parser, Debug)]
-#[command(name = "container-runtime", version, about = "A toy container runtime for learning")]
+#[command(
+    name = "container-runtime",
+    version,
+    about = "A toy container runtime for learning"
+)]
 pub struct Cli {
-
     /// The subcommand to dispatch (run, ...).
     #[command(subcommand)]
     pub command: Command,
-
 }
 
 /// Available subcommands.
 #[derive(Subcommand, Debug)]
 pub enum Command {
-
     /// Run a command inside an isolated rootfs.
     Run(RunArgs),
-
 }
 
 #[derive(Parser, Debug)]
@@ -39,7 +39,7 @@ pub struct RunArgs {
     pub pids: u64,
 
     /// Host UID to map with container's root user
-    #[arg(long, default_value_t = 0)] 
+    #[arg(long, default_value_t = 0)]
     pub uid: u32,
 
     /// Host GID to map with container's root user

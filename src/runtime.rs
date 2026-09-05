@@ -1,19 +1,18 @@
-use std::os::fd::AsRawFd;
-use anyhow::{bail, Context, Result};
-use nix::sched::{unshare, CloneFlags};
-use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{ForkResult, Gid, Uid, fork, pipe, read, write, setgid, setuid};
-use std::process::ExitCode;
-use nix::sys::signal::{kill, Signal};
 use crate::cgroup::Cgroup;
 use crate::cli::RunArgs;
 use crate::container;
 use crate::mapping::Mapping;
+use anyhow::{Context, Result, bail};
+use nix::sched::{CloneFlags, unshare};
+use nix::sys::signal::{Signal, kill};
+use nix::sys::wait::{WaitStatus, waitpid};
+use nix::unistd::{ForkResult, Gid, Uid, fork, pipe, read, setgid, setuid, write};
+use std::os::fd::AsRawFd;
+use std::process::ExitCode;
 
 const CPU_PERIOD_US: u64 = 100_000; // 100ms (cgroup default)
 
 pub fn run(args: RunArgs) -> Result<ExitCode> {
-
     // PIPELINES
     let (c_read_fd, c_write_fd) = pipe()?;
     let (u_read_fd, u_write_fd) = pipe()?;
@@ -23,14 +22,20 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
     // Make sure the rootfs exists before we fork.
     if !args.rootfs.is_dir() {
         // Exit early with a clear error message via the bail! macro.
-        bail!("rootfs {:?} does not exist or is not a directory", args.rootfs);
+        bail!(
+            "rootfs {:?} does not exist or is not a directory",
+            args.rootfs
+        );
     }
     if args.cpus <= 0.0 {
         bail!("--cpus must be positive but got {}", args.cpus);
     }
     let host_cpus = num_cpus::get() as f64;
     if args.cpus > host_cpus {
-        bail!("--cpus must be less than or equal to `max_cpus`. you have only {} cpus available", host_cpus);
+        bail!(
+            "--cpus must be less than or equal to `max_cpus`. you have only {} cpus available",
+            host_cpus
+        );
     }
 
     // SETUP AVAILABLE RESOURCES
@@ -74,16 +79,14 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
             if let Err(e) = read(u_read_fd.as_raw_fd(), &mut buf) {
                 let _ = kill(child, Signal::SIGKILL);
                 let _ = waitpid(child, None);
-                return Err(e).context("child closed pipe before creating new user namespace; child killed");
+                return Err(e)
+                    .context("child closed pipe before creating new user namespace; child killed");
             }
             drop(u_read_fd);
 
             // Map container root to the requested host UID/GID.
-            let new_mapping: Mapping = Mapping::new(
-                child,
-                Uid::from_raw(args.uid),
-                Gid::from_raw(args.gid),
-            );
+            let new_mapping: Mapping =
+                Mapping::new(child, Uid::from_raw(args.uid), Gid::from_raw(args.gid));
             if let Err(e) = new_mapping.map() {
                 let _ = kill(child, Signal::SIGKILL);
                 let _ = waitpid(child, None);
@@ -95,7 +98,6 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
             // Wait for the child to finish and inspect its status.
             let status = waitpid(child, None).context("waitpid failed")?;
             match status {
-
                 // Child exited normally — forward its exit code.
                 WaitStatus::Exited(_, code) => Ok(ExitCode::from(code as u8)),
 
@@ -111,7 +113,7 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
             drop(c_write_fd);
             drop(u_read_fd);
             drop(m_write_fd);
-            
+
             // wait until parent finished to create new cgroup
             let mut buf = [0u8; 1];
             let check_cgroup = read(c_read_fd.as_raw_fd(), &mut buf);
@@ -136,7 +138,7 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
                 std::process::exit(127);
             }
             drop(u_write_fd);
-            
+
             // Wait until mapping step completed from the parent process
             let check_mapping = read(m_read_fd.as_raw_fd(), &mut buf);
             if check_mapping != Ok(1) {
@@ -156,10 +158,10 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
 }
 
 fn setup_child(args: RunArgs) -> Result<()> {
-
     // Create a new PID namespace and new Network device namespace.
     // After calling unshare(CLONE_NEWPID | CLONE_NEWNET), new child will be created with new PID and network namespace.
-    unshare(CloneFlags::CLONE_NEWPID | CloneFlags::CLONE_NEWNET).context("unshare(CLONE_NEWPID | CLONE_NEWNET)")?;
+    unshare(CloneFlags::CLONE_NEWPID | CloneFlags::CLONE_NEWNET)
+        .context("unshare(CLONE_NEWPID | CLONE_NEWNET)")?;
 
     // Fork the actual container process (PID 1 inside the new namespace).
     match unsafe { fork() }.context("fork (setup) failed")? {
@@ -167,7 +169,7 @@ fn setup_child(args: RunArgs) -> Result<()> {
         ForkResult::Parent { child } => {
             let status = waitpid(child, None).context("waitpid(child) failed")?;
             let code = match status {
-                WaitStatus::Exited(_, c) => c as i32,
+                WaitStatus::Exited(_, c) => c,
                 WaitStatus::Signaled(_, sig, _) => 128 + sig as i32,
                 other => bail!("unexpected wait status for init: {:?}", other),
             };
@@ -177,7 +179,6 @@ fn setup_child(args: RunArgs) -> Result<()> {
         // Grandchild process (the container environment).
         // It runs inside the new PID namespace thanks to the earlier unshare(CLONE_NEWPID).
         ForkResult::Child => {
-
             // Run the child. If it fails, exit immediately with code 127
             // instead of returning into parent-side logic.
             if let Err(e) = child_main(args) {
@@ -190,7 +191,6 @@ fn setup_child(args: RunArgs) -> Result<()> {
 }
 
 fn child_main(args: RunArgs) -> Result<()> {
-
     // Isolate the container's filesystem from the host using pivot_root.
     container::isolate_fs_pivot(&args.rootfs)?;
 

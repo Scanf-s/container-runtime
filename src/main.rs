@@ -2,12 +2,11 @@ use anyhow::Result;
 use clap::Parser;
 use std::process::ExitCode;
 
+mod cgroup;
 mod cli;
 mod container;
-mod runtime;
-mod cgroup;
 mod mapping;
-
+mod runtime;
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<ExitCode> {

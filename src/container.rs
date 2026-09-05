@@ -1,10 +1,10 @@
-use std::fs;
-use std::path::Path;
 use anyhow::{Context, Result};
 use nix::mount::{MntFlags, MsFlags, mount, umount2};
-use std::ffi::CString;
+use nix::sched::{CloneFlags, unshare};
 use nix::unistd::{chdir, execvp, pivot_root};
-use nix::sched::{unshare, CloneFlags};
+use std::ffi::CString;
+use std::fs;
+use std::path::Path;
 
 /// Full filesystem isolation: new mount namespace, pivot_root into `rootfs`,
 /// detach the old root, and mount a fresh `/proc`.
@@ -14,14 +14,8 @@ pub fn isolate_fs_pivot(rootfs: &Path) -> Result<()> {
     unshare(CloneFlags::CLONE_NEWNS).context("unshare(CLONE_NEWNS)")?;
 
     // Make "/" recursively private so mounts do not propagate to the host.
-    mount::<str, _, str, str>(
-        None,
-        "/",
-        None,
-        MsFlags::MS_REC | MsFlags::MS_PRIVATE,
-        None,
-    )
-    .context("mount / MS_REC|MS_PRIVATE")?;
+    mount::<str, _, str, str>(None, "/", None, MsFlags::MS_REC | MsFlags::MS_PRIVATE, None)
+        .context("mount / MS_REC|MS_PRIVATE")?;
 
     // Bind rootfs onto itself — pivot_root requires new_root to be a mount point distinct from its parent.
     mount::<_, _, str, str>(
@@ -47,8 +41,7 @@ pub fn isolate_fs_pivot(rootfs: &Path) -> Result<()> {
 
     // Directory inside the new root to receive the old root.
     let old_root = rootfs.join(".old");
-    fs::create_dir_all(&old_root)
-        .with_context(|| format!("create_dir_all {:?}", old_root))?;
+    fs::create_dir_all(&old_root).with_context(|| format!("create_dir_all {:?}", old_root))?;
 
     // Swap root: rootfs becomes /, previous root is relocated into /.old.
     pivot_root(rootfs, old_root.as_path())
@@ -57,7 +50,7 @@ pub fn isolate_fs_pivot(rootfs: &Path) -> Result<()> {
     // Reset CWD to the new root (pivot_root does not touch the current dir).
     chdir("/").context("chdir(\"/\") after pivot_root")?;
 
-    // Detach the old root lazily (files may still be held open), then remove the now-empty stub. 
+    // Detach the old root lazily (files may still be held open), then remove the now-empty stub.
     // Must be remove_dir (not remove_dir_all).
     umount2("/.old", MntFlags::MNT_DETACH).context("umount2(/.old)")?;
     fs::remove_dir("/.old").context("remove_dir(/.old)")?;
@@ -68,7 +61,6 @@ pub fn isolate_fs_pivot(rootfs: &Path) -> Result<()> {
 /// Replace the current process with `cmd` + `args` via `execvp`.
 /// Returns only on failure.
 pub fn exec_cmd(cmd: &str, args: &[String]) -> Result<()> {
-
     // Convert the command name into a nul-safe CString.
     let c_cmd = CString::new(cmd).context("cmd contains a nul byte")?;
 
