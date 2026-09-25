@@ -2,23 +2,18 @@ use crate::cgroups::Cgroup;
 use crate::cli::RunArgs;
 use crate::container;
 use crate::filesystem::PivotRoot;
+use crate::ipc::StartupChannels;
 use crate::mapping::Mapping;
 use anyhow::{Context, Result, bail};
 use nix::sched::{CloneFlags, unshare};
 use nix::sys::signal::{Signal, kill};
 use nix::sys::wait::{WaitStatus, waitpid};
-use nix::unistd::{ForkResult, Gid, Uid, fork, pipe, read, setgid, setuid, write};
-use std::os::fd::AsRawFd;
+use nix::unistd::{ForkResult, Gid, Uid, fork, setgid, setuid};
 use std::process::ExitCode;
 
 const CPU_PERIOD_US: u64 = 100_000; // 100ms (cgroup default)
 
 pub fn run(args: RunArgs) -> Result<ExitCode> {
-    // PIPELINES
-    let (c_read_fd, c_write_fd) = pipe()?;
-    let (u_read_fd, u_write_fd) = pipe()?;
-    let (m_read_fd, m_write_fd) = pipe()?;
-
     // VALIDATE INPUT ARGUMENTS
     // Make sure the rootfs exists before we fork.
     if !args.rootfs.is_dir() {
@@ -47,54 +42,37 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
     new_cgroup.set_memory_max(args.mem)?;
     new_cgroup.set_pids_max(args.pids)?;
 
+    // Both sides of each channel must exist before fork.
+    let channels = StartupChannels::new()?;
+
     // CREATE SETUP_CHILD PROCESS
     // fork() is marked unsafe in `nix` because it cannot guarantee memory
     // safety across the parent/child split — we acknowledge that here.
     match unsafe { fork() }.context("fork failed")? {
         // Parent process
         ForkResult::Parent { child } => {
-            drop(c_read_fd);
-            drop(u_write_fd);
-            drop(m_read_fd);
+            let mut ipc = channels.for_parent();
+            let setup_result = (|| -> Result<()> {
+                // The child waits for this signal before it can fork PID 1.
+                new_cgroup
+                    .add_pid(child)
+                    .context("add setup child to cgroup")?;
+                ipc.signal_cgroup_ready()?;
 
-            // Block the child until cgroup registration is complete, so the
-            // grandchild (the actual workload) is born inside the cgroup.
-            // pipe() is a FIFO buffer maintained by the kernel; it returns two
-            // file descriptors: c_read_fd (for the reader) and c_write_fd (for the writer).
-            if let Err(e) = new_cgroup.add_pid(child) {
-                // if failed to create new group, kill child process before return an error
-                let _ = kill(child, Signal::SIGKILL);
-                let _ = waitpid(child, None);
-                return Err(e).context("add_pid failed; child killed");
-            }
-            // signal the child that it can proceed
-            if let Err(e) = write(&c_write_fd, &[1u8]) {
-                let _ = kill(child, Signal::SIGKILL);
-                let _ = waitpid(child, None);
-                return Err(e).context("failed to write in cgroup pipe buffer; child killed");
-            }
-            drop(c_write_fd);
+                // UID/GID maps can be written after the child creates its user namespace.
+                ipc.wait_for_user_namespace()?;
+                Mapping::new(child, Uid::from_raw(args.uid), Gid::from_raw(args.gid))
+                    .map()
+                    .context("map container UID/GID")?;
+                ipc.signal_mapping_ready()?;
+                Ok(())
+            })();
 
-            // Wait until the child has created a new user namespace.
-            let mut buf = [0u8; 1];
-            if let Err(e) = read(u_read_fd.as_raw_fd(), &mut buf) {
+            if let Err(error) = setup_result {
                 let _ = kill(child, Signal::SIGKILL);
                 let _ = waitpid(child, None);
-                return Err(e)
-                    .context("child closed pipe before creating new user namespace; child killed");
+                return Err(error).context("container setup failed; child killed");
             }
-            drop(u_read_fd);
-
-            // Map container root to the requested host UID/GID.
-            let new_mapping: Mapping =
-                Mapping::new(child, Uid::from_raw(args.uid), Gid::from_raw(args.gid));
-            if let Err(e) = new_mapping.map() {
-                let _ = kill(child, Signal::SIGKILL);
-                let _ = waitpid(child, None);
-                return Err(e).context("user namespace mapping failed; child killed");
-            }
-            write(&m_write_fd, &[1u8])?; // signal the child that it can proceed
-            drop(m_write_fd);
 
             // Wait for the child to finish and inspect its status.
             let status = waitpid(child, None).context("waitpid failed")?;
@@ -111,46 +89,17 @@ pub fn run(args: RunArgs) -> Result<ExitCode> {
 
         // Child setup process
         ForkResult::Child => {
-            drop(c_write_fd);
-            drop(u_read_fd);
-            drop(m_write_fd);
+            let mut ipc = channels.for_child();
+            let setup_result = (|| -> Result<()> {
+                ipc.wait_for_cgroup()?;
+                unshare(CloneFlags::CLONE_NEWUSER).context("unshare(CLONE_NEWUSER)")?;
+                ipc.signal_user_namespace_ready()?;
+                ipc.wait_for_mapping()?;
+                setup_child(args)
+            })();
 
-            // wait until parent finished to create new cgroup
-            let mut buf = [0u8; 1];
-            let check_cgroup = read(c_read_fd.as_raw_fd(), &mut buf);
-            if check_cgroup != Ok(1) {
-                eprintln!("parent closed cgroup step pipe before completing it");
-                std::process::exit(127);
-            }
-            drop(c_read_fd);
-
-            // flush buf to reuse in mapping step
-            buf = [0u8; 1];
-
-            // Create a new user namespace
-            // setup_child is in new user namespace
-            if let Err(e) = unshare(CloneFlags::CLONE_NEWUSER).context("unshare(CLONE_NEWUSER)") {
-                eprintln!("failed to execute unshare(CLONE_NEWUSER): {e:#}");
-                std::process::exit(127);
-            }
-            // signal to notify to the parent about finishing unshare(CLONE_NEWUSER)
-            if let Err(e) = write(&u_write_fd, &[1u8]) {
-                eprintln!("failed to write buffer in u_write_fd: {e:#}");
-                std::process::exit(127);
-            }
-            drop(u_write_fd);
-
-            // Wait until mapping step completed from the parent process
-            let check_mapping = read(m_read_fd.as_raw_fd(), &mut buf);
-            if check_mapping != Ok(1) {
-                eprintln!("parent closed mapping pipe before completing uid/gid mapping");
-                std::process::exit(127);
-            }
-            drop(m_read_fd);
-
-            // Run setup_child
-            if let Err(e) = setup_child(args) {
-                eprintln!("container-runtime: setup_child failed: {e:#}");
+            if let Err(error) = setup_result {
+                eprintln!("container-runtime: setup_child failed: {error:#}");
                 std::process::exit(127);
             }
             unreachable!();

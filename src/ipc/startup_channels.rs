@@ -10,7 +10,6 @@ pub(crate) struct StartupChannels {
 }
 
 impl StartupChannels {
-
     pub(crate) fn new() -> Result<Self> {
         Ok(Self {
             cgroup: pipe().context("create cgroup pipe")?,

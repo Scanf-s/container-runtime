@@ -6,6 +6,7 @@ mod cgroups;
 mod cli;
 mod container;
 mod filesystem;
+mod ipc;
 mod mapping;
 mod runtime;
 
