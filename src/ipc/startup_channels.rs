@@ -20,7 +20,7 @@ impl StartupChannels {
     }
 
     /// Call in the parent after fork
-    pub(crate) fn into_parent(self) -> ParentChannels {
+    pub(crate) fn for_parent(self) -> ParentChannels {
         let (cgroup_reader, cgroup_writer) = self.cgroup;
         let (user_namespace_reader, user_namespace_writer) = self.user_namespace;
         let (mapping_reader, mapping_writer) = self.mapping;
@@ -32,7 +32,7 @@ impl StartupChannels {
     }
 
     /// Call in the child after fork
-    pub(crate) fn into_child(self) -> ChildChannels {
+    pub(crate) fn for_child(self) -> ChildChannels {
         let (cgroup_reader, cgroup_writer) = self.cgroup;
         let (user_namespace_reader, user_namespace_writer) = self.user_namespace;
         let (mapping_reader, mapping_writer) = self.mapping;
