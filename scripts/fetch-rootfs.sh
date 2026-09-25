@@ -1,13 +1,9 @@
 #!/bin/bash
-
-# set -e: Exit immediately if any command returns non-zero (error)
-# set -u: exit if an unset variable is referenced
-# set -o pipefail: if any command in pipeline fails, the whole pipeline fails.
 set -euo pipefail
 
 # Use the first CLI argument if provided, else default to ./rootfs
 ROOTFS_DIR="${1:-./rootfs}"
-VERSION="3.20.3"
+VERSION="3.24.2"
 ARCH="$(uname -m)"
 URL="https://dl-cdn.alpinelinux.org/alpine/v${VERSION%.*}/releases/${ARCH}/alpine-minirootfs-${VERSION}-${ARCH}.tar.gz"
 
