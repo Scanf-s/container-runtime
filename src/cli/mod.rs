@@ -1,5 +1,5 @@
-mod cli;
+mod command;
 mod run_args;
 
-pub use cli::{Cli, Command};
+pub use command::{Cli, Command};
 pub use run_args::RunArgs;
