@@ -16,12 +16,7 @@ impl PivotRoot {
 
     /// Isolate the filesystem by pivoting into `rootfs`, then detach the old root.
     pub fn isolate_filesystem(&self) -> Result<()> {
-        if !self.rootfs.is_dir() {
-            bail!(
-                "rootfs {:?} does not exist or is not a directory",
-                self.rootfs
-            );
-        }
+        self.validate_rootfs()?;
 
         // Create new mount table for this new process
         self.set_private_mount_namespace()?;
@@ -43,6 +38,16 @@ impl PivotRoot {
         // Isolate filesystem with new configured mount table using pivot_root
         self.pivot_root()?;
 
+        Ok(())
+    }
+
+    fn validate_rootfs(&self) -> Result<()> {
+        if !self.rootfs.is_dir() {
+            bail!(
+                "rootfs {:?} does not exist or is not a directory",
+                self.rootfs
+            );
+        }
         Ok(())
     }
 
@@ -87,5 +92,48 @@ impl PivotRoot {
         umount2("/.old", MntFlags::MNT_DETACH).context("umount2(/.old)")?;
         fs::remove_dir("/.old").context("remove_dir(/.old)")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::random;
+
+    #[test]
+    fn rejects_missing_rootfs_before_mount_operations() {
+        let rootfs = std::env::temp_dir().join(format!("missing-rootfs-{:x}", random::<u64>()));
+        let error = PivotRoot::new(rootfs.clone())
+            .isolate_filesystem()
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("does not exist or is not a directory")
+        );
+        assert!(!rootfs.exists());
+    }
+
+    #[test]
+    fn rejects_regular_file_as_rootfs() {
+        let path = std::env::temp_dir().join(format!("rootfs-file-{:x}", random::<u64>()));
+        fs::write(&path, "not a directory").unwrap();
+        let error = PivotRoot::new(path.clone())
+            .isolate_filesystem()
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("does not exist or is not a directory")
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn accepts_an_existing_directory_as_rootfs() {
+        let path = std::env::temp_dir().join(format!("rootfs-dir-{:x}", random::<u64>()));
+        fs::create_dir(&path).unwrap();
+        assert!(PivotRoot::new(path.clone()).validate_rootfs().is_ok());
+        fs::remove_dir(path).unwrap();
     }
 }

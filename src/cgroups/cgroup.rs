@@ -3,6 +3,28 @@ use rand::random;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const REQUIRED_CONTROLLERS: [&str; 3] = ["memory", "cpu", "pids"];
+
+fn missing_controllers(active: &str) -> Vec<&'static str> {
+    let active: Vec<&str> = active.split_whitespace().collect();
+    REQUIRED_CONTROLLERS
+        .into_iter()
+        .filter(|controller| !active.contains(controller))
+        .collect()
+}
+
+fn check_delegated_controllers(delegated: &str) -> Result<()> {
+    let delegated: Vec<&str> = delegated.split_whitespace().collect();
+    for controller in REQUIRED_CONTROLLERS {
+        if !delegated.contains(&controller) {
+            bail!(
+                "controller {controller} not delegated to new cgroup (check parent's cgroup.subtree_control)"
+            );
+        }
+    }
+    Ok(())
+}
+
 pub struct Cgroup {
     path: PathBuf,
 }
@@ -28,14 +50,7 @@ impl Cgroup {
         // Check whether subtree_control delegates the memory, cpu, and pids
         // controllers to children. If any are missing, enable them below.
         let controllers: String = fs::read_to_string(subtree_path)?;
-        let active_controllers: Vec<&str> = controllers.split_whitespace().collect();
-        let required_controllers: Vec<&str> = vec!["memory", "cpu", "pids"];
-        let mut missing_controllers: Vec<&str> = Vec::new();
-        for controller in &required_controllers {
-            if !active_controllers.contains(controller) {
-                missing_controllers.push(controller);
-            }
-        }
+        let missing_controllers = missing_controllers(&controllers);
 
         // Enable any missing controllers on the parent cgroup.
         if !missing_controllers.is_empty() {
@@ -55,14 +70,7 @@ impl Cgroup {
         // Verify the required controllers were delegated to the new cgroup.
         let delegated = fs::read_to_string(new_container_cgroup.join("cgroup.controllers"))
             .context("read new cgroup.controllers")?;
-        let delegated: Vec<&str> = delegated.split_whitespace().collect();
-        for c in &required_controllers {
-            if !delegated.contains(c) {
-                bail!(
-                    "controller {c} not delegated to new cgroup (check parent's cgroup.subtree_control)"
-                );
-            }
-        }
+        check_delegated_controllers(&delegated)?;
 
         Ok(Cgroup {
             path: new_container_cgroup,
@@ -95,5 +103,88 @@ impl Cgroup {
 impl Drop for Cgroup {
     fn drop(&mut self) {
         let _ = fs::remove_dir(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nix::unistd::Pid;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("container-runtime-cgroup-{:x}", random::<u64>()));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn finds_only_missing_controllers_in_required_order() {
+        assert_eq!(missing_controllers("cpu io\npids"), vec!["memory"]);
+        assert_eq!(
+            missing_controllers("memory cpu pids io"),
+            Vec::<&str>::new()
+        );
+        assert_eq!(missing_controllers("memoryful cpu"), vec!["memory", "pids"]);
+    }
+
+    #[test]
+    fn rejects_a_missing_delegated_controller() {
+        assert!(check_delegated_controllers("cpu memory pids io").is_ok());
+        let error = check_delegated_controllers("cpu memory").unwrap_err();
+        assert!(error.to_string().contains("controller pids not delegated"));
+    }
+
+    #[test]
+    fn writes_pid_and_limits_to_cgroup_files() {
+        let temp = TempDir::new();
+        let path = temp.0.join("cgroup");
+        fs::create_dir(&path).unwrap();
+        let cgroup = Cgroup { path: path.clone() };
+
+        cgroup.add_pid(Pid::from_raw(1234)).unwrap();
+        cgroup.set_memory_max(512 * 1024 * 1024).unwrap();
+        cgroup.set_cpu_max(50_000, 100_000).unwrap();
+        cgroup.set_pids_max(64).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(path.join("cgroup.procs")).unwrap(),
+            "1234"
+        );
+        assert_eq!(
+            fs::read_to_string(path.join("memory.max")).unwrap(),
+            "536870912"
+        );
+        assert_eq!(
+            fs::read_to_string(path.join("cpu.max")).unwrap(),
+            "50000 100000"
+        );
+        assert_eq!(fs::read_to_string(path.join("pids.max")).unwrap(), "64");
+
+        for file in ["cgroup.procs", "memory.max", "cpu.max", "pids.max"] {
+            fs::remove_file(path.join(file)).unwrap();
+        }
+        drop(cgroup);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn reports_the_file_when_a_limit_write_fails() {
+        let temp = TempDir::new();
+        let cgroup = Cgroup {
+            path: temp.0.join("missing"),
+        };
+        let error = cgroup.set_memory_max(1).unwrap_err();
+        assert!(error.to_string().contains("write memory.max"));
     }
 }
