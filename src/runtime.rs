@@ -1,6 +1,7 @@
 use crate::cgroups::Cgroup;
 use crate::cli::RunArgs;
 use crate::container;
+use crate::filesystem::PivotRoot;
 use crate::mapping::Mapping;
 use anyhow::{Context, Result, bail};
 use nix::sched::{CloneFlags, unshare};
@@ -192,7 +193,7 @@ fn setup_child(args: RunArgs) -> Result<()> {
 
 fn child_main(args: RunArgs) -> Result<()> {
     // Isolate the container's filesystem from the host using pivot_root.
-    container::isolate_fs_pivot(&args.rootfs)?;
+    PivotRoot::new(args.rootfs.clone()).isolate_filesystem()?;
 
     // set uid and gid
     setgid(Gid::from_raw(0))?;

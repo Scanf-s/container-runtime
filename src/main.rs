@@ -5,6 +5,7 @@ use std::process::ExitCode;
 mod cgroups;
 mod cli;
 mod container;
+mod filesystem;
 mod mapping;
 mod runtime;
 
