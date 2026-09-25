@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use std::process::ExitCode;
 
-mod cgroup;
+mod cgroups;
 mod cli;
 mod container;
 mod mapping;

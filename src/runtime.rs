@@ -1,4 +1,4 @@
-use crate::cgroup::Cgroup;
+use crate::cgroups::Cgroup;
 use crate::cli::RunArgs;
 use crate::container;
 use crate::mapping::Mapping;
