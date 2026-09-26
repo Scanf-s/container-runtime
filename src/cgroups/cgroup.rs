@@ -80,19 +80,24 @@ impl Cgroup {
             fs::write(subtree_path, payload).context("failed to enable controllers")?;
         }
 
+        Self::create_cgroup_dir(cgroup_path)
+    }
+
+    fn create_cgroup_dir(cgroup_path: &Path) -> Result<Self> {
         // Create a new cgroup subdirectory for this container.
         let id = format!("rust_container_{:x}", random::<u64>());
         let new_container_cgroup = cgroup_path.join(&id);
         fs::create_dir(&new_container_cgroup).context("create cgroup dir")?;
+        let cgroup = Cgroup {
+            path: new_container_cgroup,
+        };
 
         // Verify the required controllers were delegated to the new cgroup.
-        let delegated = fs::read_to_string(new_container_cgroup.join("cgroup.controllers"))
+        let delegated = fs::read_to_string(cgroup.path.join("cgroup.controllers"))
             .context("read new cgroup.controllers")?;
         check_delegated_controllers(&delegated)?;
 
-        Ok(Cgroup {
-            path: new_container_cgroup,
-        })
+        Ok(cgroup)
     }
 
     pub fn configure(&self, settings: &CgroupSettings) -> Result<()> {
@@ -167,6 +172,21 @@ mod tests {
         assert!(check_delegated_controllers("cpu memory pids io").is_ok());
         let error = check_delegated_controllers("cpu memory").unwrap_err();
         assert!(error.to_string().contains("controller pids not delegated"));
+    }
+
+    #[test]
+    fn removes_new_cgroup_when_controller_read_fails() {
+        // Unlike cgroupfs, a normal directory has no cgroup.controllers file.
+        let temp = TempDir::new();
+        let error = Cgroup::create_cgroup_dir(&temp.0).err().unwrap();
+        assert!(error.to_string().contains("read new cgroup.controllers"));
+
+        // The new cgroup directory should be removed when setup fails.
+        assert_eq!(
+            fs::read_dir(&temp.0).unwrap().count(),
+            0,
+            "failed cgroup setup left a directory behind"
+        );
     }
 
     #[test]

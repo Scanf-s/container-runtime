@@ -47,5 +47,4 @@ impl ChildChannels {
             .context("mapping already checked")?;
         wait_ready(&fd, "mapping")
     }
-    
 }

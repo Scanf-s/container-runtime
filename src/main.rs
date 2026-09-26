@@ -7,8 +7,8 @@ mod cli;
 mod container;
 mod filesystem;
 mod ipc;
-mod user;
 mod runtime;
+mod user;
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<ExitCode> {

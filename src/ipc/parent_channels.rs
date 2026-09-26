@@ -47,5 +47,4 @@ impl ParentChannels {
             .context("mapping already signaled")?;
         send_ready(&fd, "mapping")
     }
-    
 }
