@@ -17,6 +17,6 @@ fn main() -> Result<ExitCode> {
 
     match cli.command {
         // Create a new container and run the requested command inside it.
-        cli::Command::Run(args) => runtime::run(args),
+        cli::Command::Run(args) => runtime::Runtime::new(args)?.run(),
     }
 }

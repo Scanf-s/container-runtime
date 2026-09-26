@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use rand::random;
 use std::fs;
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
 const REQUIRED_CONTROLLERS: [&str; 3] = ["memory", "cpu", "pids"];
@@ -25,6 +26,24 @@ fn check_delegated_controllers(delegated: &str) -> Result<()> {
     Ok(())
 }
 
+pub struct CgroupSettings {
+    cpu_quota_us: NonZeroU64,
+    memory_max: u64,
+    pids_max: u64,
+}
+
+impl CgroupSettings {
+    pub const CPU_PERIOD_US: u64 = 100_000;
+
+    pub fn new(cpu_quota_us: NonZeroU64, memory_max: u64, pids_max: u64) -> Self {
+        Self {
+            cpu_quota_us,
+            memory_max,
+            pids_max,
+        }
+    }
+}
+
 pub struct Cgroup {
     path: PathBuf,
 }
@@ -47,8 +66,7 @@ impl Cgroup {
             bail!("cgroup operations require root privileges");
         }
 
-        // Check whether subtree_control delegates the memory, cpu, and pids
-        // controllers to children. If any are missing, enable them below.
+        // Check whether subtree_control delegates the memory, cpu, and pids controllers to children.
         let controllers: String = fs::read_to_string(subtree_path)?;
         let missing_controllers = missing_controllers(&controllers);
 
@@ -77,23 +95,29 @@ impl Cgroup {
         })
     }
 
+    pub fn configure(&self, settings: &CgroupSettings) -> Result<()> {
+        self.set_cpu_max(settings.cpu_quota_us.get(), CgroupSettings::CPU_PERIOD_US)?;
+        self.set_memory_max(settings.memory_max)?;
+        self.set_pids_max(settings.pids_max)
+    }
+
     pub fn add_pid(&self, pid: nix::unistd::Pid) -> Result<()> {
         fs::write(self.path.join("cgroup.procs"), pid.to_string()).context("write cgroup.procs")?;
         Ok(())
     }
 
-    pub fn set_memory_max(&self, bytes: u64) -> Result<()> {
+    fn set_memory_max(&self, bytes: u64) -> Result<()> {
         fs::write(self.path.join("memory.max"), bytes.to_string()).context("write memory.max")?;
         Ok(())
     }
 
-    pub fn set_cpu_max(&self, quota_us: u64, period_us: u64) -> Result<()> {
+    fn set_cpu_max(&self, quota_us: u64, period_us: u64) -> Result<()> {
         fs::write(self.path.join("cpu.max"), format!("{quota_us} {period_us}"))
             .context("write cpu.max")?;
         Ok(())
     }
 
-    pub fn set_pids_max(&self, pids: u64) -> Result<()> {
+    fn set_pids_max(&self, pids: u64) -> Result<()> {
         fs::write(self.path.join("pids.max"), pids.to_string()).context("write pids.max")?;
         Ok(())
     }
@@ -152,10 +176,9 @@ mod tests {
         fs::create_dir(&path).unwrap();
         let cgroup = Cgroup { path: path.clone() };
 
+        let settings = CgroupSettings::new(NonZeroU64::new(50_000).unwrap(), 512 * 1024 * 1024, 64);
         cgroup.add_pid(Pid::from_raw(1234)).unwrap();
-        cgroup.set_memory_max(512 * 1024 * 1024).unwrap();
-        cgroup.set_cpu_max(50_000, 100_000).unwrap();
-        cgroup.set_pids_max(64).unwrap();
+        cgroup.configure(&settings).unwrap();
 
         assert_eq!(
             fs::read_to_string(path.join("cgroup.procs")).unwrap(),

@@ -1,3 +1,3 @@
 mod cgroup;
 
-pub use cgroup::Cgroup;
+pub use cgroup::{Cgroup, CgroupSettings};
