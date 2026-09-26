@@ -7,7 +7,7 @@ mod cli;
 mod container;
 mod filesystem;
 mod ipc;
-mod mapping;
+mod user;
 mod runtime;
 
 #[cfg(target_os = "linux")]

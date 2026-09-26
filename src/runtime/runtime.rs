@@ -3,7 +3,7 @@ use crate::cli::RunArgs;
 use crate::container;
 use crate::filesystem::PivotRoot;
 use crate::ipc::StartupChannels;
-use crate::mapping::Mapping;
+use crate::user::Mapping;
 use anyhow::{Context, Result, bail};
 use nix::sched::{CloneFlags, unshare};
 use nix::sys::signal::{Signal, kill};
