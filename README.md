@@ -56,3 +56,4 @@ make lint   # cargo clippy --all-features
 
 - [Verify the isolation](docs/verification.md): commands and example screenshots.
 - [Learning notes](docs/README.md): system calls, filesystems, namespaces, cgroups, and user mapping.
+- [OCI direction](docs/open-container-initative.md): what OCI means and a first compatibility milestone.
