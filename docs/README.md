@@ -9,5 +9,6 @@ Suggested reading order:
 3. [Process namespaces](namespaces.md): PID namespaces, the double-fork pattern, and `/proc`.
 4. [Resource limits with cgroups](cgroups.md): cgroup v2, CPU/memory/PID limits, synchronization, and cleanup.
 5. [User namespaces and UID/GID mapping](user-mapping.md): mapping container root to a host user and coordinating setup.
+6. [OCI implementation guide](open-container-initiative.md): OCI concepts, staged implementation, lifecycle design, and verification.
 
 For commands and example screenshots, see [Verify the isolation](verification.md).
